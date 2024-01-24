@@ -1,12 +1,5 @@
 use std::{fs, path::PathBuf};
 
-/// Recognized extensions
-enum Extension {
-    Md,
-    Csv,
-    Other,
-}
-
 #[derive(Debug)]
 pub struct FileInfo {
     pub path: PathBuf,
@@ -34,7 +27,7 @@ impl FileType {
             | FileType::CsvAll(file_info)
             | FileType::Dir(file_info) => &file_info.name_uuid,
             FileType::OtherTxt(path) | FileType::OtherBin(path) => {
-                &path.file_stem().unwrap().to_str().unwrap()
+                path.file_stem().unwrap().to_str().unwrap()
             }
         }
     }

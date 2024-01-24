@@ -203,10 +203,10 @@ impl NotionObject {
     }
 
     fn is_other(&self) -> bool {
-        match self {
-            NotionObject::OtherText { .. } | NotionObject::OtherBinary { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            NotionObject::OtherText { .. } | NotionObject::OtherBinary { .. }
+        )
     }
 
     pub fn build_map_by_name(notion_objects: Vec<NotionObject>) -> ObjectsMapByName {
@@ -239,7 +239,7 @@ impl NotionObject {
                     let extension = path.extension().unwrap().to_str().unwrap();
 
                     let mut new_name_with_extension = name.clone();
-                    new_name_with_extension.push_str(".");
+                    new_name_with_extension.push('.');
                     new_name_with_extension.push_str(extension);
 
                     Some(path.with_file_name(new_name_with_extension))
@@ -378,7 +378,7 @@ impl NotionObject {
         let mut all_objects_sorted_by_dir_path_len_highest_first = all_objects
             .iter()
             .filter(|obj| obj.has_dir())
-            .map(|obj| *obj)
+            .copied()
             .collect::<Vec<&NotionObject>>();
         all_objects_sorted_by_dir_path_len_highest_first
             .sort_by_key(|obj| obj.get_dir().unwrap().components().count());

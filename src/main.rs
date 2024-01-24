@@ -1,65 +1,12 @@
 use file_type::FileType;
-use indicatif::ProgressIterator;
-use std::{
-    collections::{HashMap, HashSet},
-    env, fs,
-    path::{Path, PathBuf},
-    process::exit,
-};
+
+use std::{collections::HashMap, env, path::PathBuf};
 use walkdir::WalkDir;
 
 use crate::objects::NotionObject;
 
 mod file_type;
 mod objects;
-
-struct EntryRef {
-    /// name + space + UUID (for uniqueness)
-    name_uuid: String,
-    /// name of the file without the uuid
-    name: String,
-    /// New name
-    new_name: Option<String>,
-
-    file_path: PathBuf,
-    dir_path: Option<PathBuf>, // If the file has subpages, there will be a directory with the same name
-    csv_path: Option<PathBuf>, // If the file is a database, there will be a csv file with the same name
-    csv_all_path: Option<PathBuf>, // If the file is a database, there will also be a _all.csv file
-}
-
-impl EntryRef {
-    fn get_name_uuid_from_path(path: &PathBuf) -> String {
-        let file_name = path.file_stem().unwrap().to_str().unwrap();
-        let name_uuid = file_name.to_string();
-        name_uuid
-    }
-
-    fn from_file_path(
-        file_path: PathBuf,
-        directories: &HashMap<String, PathBuf>,
-        csvs: &HashMap<String, PathBuf>,
-    ) -> EntryRef {
-        let name_uuid = EntryRef::get_name_uuid_from_path(&file_path);
-        // name is the name without the uuid
-        // uuid is the characters after the last space, but there might not be multiple spaces
-        let last_space_index = name_uuid.rfind(' ').unwrap_or(0);
-        let name = name_uuid[0..last_space_index].to_string();
-
-        let dir_path = directories.get(&name_uuid).cloned();
-        let csv_path = csvs.get(&name_uuid).cloned();
-        let csv_all_path = csvs.get(&(name_uuid.clone() + "_all")).cloned();
-
-        EntryRef {
-            name_uuid,
-            name,
-            new_name: None,
-            file_path,
-            dir_path,
-            csv_path,
-            csv_all_path,
-        }
-    }
-}
 
 fn main() {
     let directory = env::args().nth(1).expect("no directory given");
@@ -69,7 +16,7 @@ fn main() {
     let mut file_map: HashMap<String, Vec<FileType>> = HashMap::new();
 
     // To skip root
-    for entry in WalkDir::new(&directory_path) {
+    for entry in WalkDir::new(directory_path) {
         let ft = FileType::from(entry.unwrap().path().to_path_buf());
         let file_key = ft.get_file_key().to_string();
         file_map.entry(file_key).or_default().push(ft);
