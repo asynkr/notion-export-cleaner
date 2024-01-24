@@ -9,6 +9,7 @@ pub struct FileInfo {
 #[derive(Debug)]
 pub enum FileType {
     Markdown(FileInfo),
+    Html(FileInfo),
     Csv(FileInfo),
     CsvAll(FileInfo),
     Dir(FileInfo),
@@ -23,6 +24,7 @@ impl FileType {
     pub fn get_file_key(&self) -> &str {
         match self {
             FileType::Markdown(file_info)
+            | FileType::Html(file_info)
             | FileType::Csv(file_info)
             | FileType::CsvAll(file_info)
             | FileType::Dir(file_info) => &file_info.name_uuid,
@@ -49,6 +51,7 @@ impl From<PathBuf> for FileType {
 
         match extension {
             "md" => FileType::Markdown(file_info),
+            "html" => FileType::Html(file_info),
             "csv" => {
                 if file_info.name_uuid.ends_with("_all") {
                     let file_info = FileInfo {

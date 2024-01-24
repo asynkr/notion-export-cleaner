@@ -7,6 +7,11 @@ use std::{
 
 use crate::file_type::{FileInfo, FileType};
 
+/// The `index.html` file has a `index` key.
+/// It shouldn't be totally ignored because it has content to be modified,
+/// but it shouldn't be renamed. So it shouldn't be a Page object.
+const INDEX_KEY: &str = "index";
+
 pub struct NotionObjectInfo {
     /// The path to the file
     path: PathBuf,
@@ -29,6 +34,7 @@ pub enum NotionObject {
     Database {
         obj_info: NotionObjectInfo,
         csv_all_path: Option<PathBuf>,
+        html_path: Option<PathBuf>,
     },
     OtherText {
         path: PathBuf,
@@ -43,7 +49,8 @@ impl NotionObject {
         let mut notion_objects = Vec::new();
 
         for (key, file_types) in all_files.iter() {
-            let mut page_path = None;
+            let mut md_path = None;
+            let mut html_path = None;
             let mut csv_path = None;
             let mut csv_all_path = None;
             let mut dir_path = None;
@@ -54,7 +61,10 @@ impl NotionObject {
             for file_type in file_types {
                 match file_type {
                     FileType::Markdown(file_info) => {
-                        page_path = Some(file_info.path.clone());
+                        md_path = Some(file_info.path.clone());
+                    }
+                    FileType::Html(file_info) => {
+                        html_path = Some(file_info.path.clone());
                     }
                     FileType::Csv(file_info) => {
                         csv_path = Some(file_info.path.clone());
@@ -76,17 +86,30 @@ impl NotionObject {
                 }
             }
 
+            if key == INDEX_KEY {
+                assert!(file_types.len() == 1);
+                assert!(html_path.is_some());
+                notion_objects.push(NotionObject::OtherText {
+                    path: html_path.unwrap(),
+                });
+                continue;
+            }
+
             if non_standard_file_encountered {
-                assert!(page_path.is_none());
+                assert!(md_path.is_none());
+                assert!(html_path.is_none());
                 assert!(csv_path.is_none());
                 assert!(csv_all_path.is_none());
                 assert!(dir_path.is_none());
                 continue;
             }
 
-            match (page_path, csv_path, csv_all_path, dir_path) {
-                // Markdown file
-                (Some(page_path), None, None, dir_path) => {
+            match (md_path, html_path, csv_path, csv_all_path, dir_path) {
+                // Page:
+                // md file
+                (Some(page_path), None, None, None, dir_path)
+                // or html file
+                | (None, Some(page_path), None, None, dir_path) => {
                     let last_space_index = key
                         .rfind(' ')
                         .unwrap_or_else(|| panic!("No space in file name: {}", key));
@@ -101,7 +124,8 @@ impl NotionObject {
                     }));
                 }
                 // Database file
-                (None, Some(csv_path), csv_all_path, dir_path) => {
+                // A database file can have an associated html file
+                (None, html_file, Some(csv_path), csv_all_path, dir_path) => {
                     let last_space_index = key
                         .rfind(' ')
                         .unwrap_or_else(|| panic!("No space in file name: {}", key));
@@ -116,15 +140,18 @@ impl NotionObject {
                             new_name: None,
                         },
                         csv_all_path,
+                        html_path: html_file,
                     });
                 }
                 // Directory alone. we dont rename it, so skip it.
-                (None, None, None, Some(_)) => {}
+                // (All renamable directories are associated with a page or a database)
+                (None, None, None, None, Some(_)) => {}
                 // Invalid !
-                (page_path, csv_path, csv_all_path, _) => panic!(
-                    "Invalid paths (database files and page files have same key {}):\n{}\n{}\n{}",
+                (md_path, html_path, csv_path, csv_all_path, _) => panic!(
+                    "Invalid paths (database files and page files have same key {}):\n{}\n{}\n{}\n{}",
                     key,
-                    page_path.unwrap_or_default().display(),
+                    md_path.unwrap_or_default().display(),
+                    html_path.unwrap_or_default().display(),
                     csv_path.unwrap_or_default().display(),
                     csv_all_path.unwrap_or_default().display()
                 ),
@@ -307,6 +334,7 @@ impl NotionObject {
         for file in all_files.iter().progress() {
             let path = match file {
                 FileType::Markdown(FileInfo { path, .. })
+                | FileType::Html(FileInfo { path, .. })
                 | FileType::Csv(FileInfo { path, .. })
                 | FileType::CsvAll(FileInfo { path, .. })
                 | FileType::OtherTxt(path) => path,
@@ -342,6 +370,7 @@ impl NotionObject {
         if let NotionObject::Database {
             obj_info,
             csv_all_path: Some(old_csv_all_path),
+            ..
         } = self
         {
             // Rename also the csv_all
@@ -350,6 +379,20 @@ impl NotionObject {
                 .with_extension(old_csv_all_path.extension().unwrap());
 
             fs::rename(old_csv_all_path, new_csv_all_path).unwrap(); // Should not panic
+        }
+
+        if let NotionObject::Database {
+            obj_info,
+            html_path: Some(old_html_path),
+            ..
+        } = self
+        {
+            // Rename also the html
+            let new_html_path = old_html_path
+                .with_file_name(obj_info.new_name.as_ref().unwrap())
+                .with_extension(old_html_path.extension().unwrap());
+
+            fs::rename(old_html_path, new_html_path).unwrap(); // Should not panic
         }
     }
 

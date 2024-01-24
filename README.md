@@ -14,9 +14,9 @@ It is not trivial, since you also need to edit all links everywhere in the files
 ## How to use it ?
 
 1. **Export :**
-   You'll need to export your Notion workspace as markdown files, with subpages as folders.
+   You'll need to export your Notion workspace as markdown or html files, with subpages as folders.
 ![export settings](./doc/export_settings.png)
-> NB: you can also export as markdown _without_ subpages as folders. However, there will be a lot more name conflicts (multiple pages wanting to be called the same), so a lot more `My file`, `My file 1`, `My file 2`, etc.
+> NB: you can also export as markdown or html _without_ subpages as folders. However, there will be a lot more name conflicts (multiple pages wanting to be called the same), so a lot more `My file`, `My file 1`, `My file 2`, etc.
 
 1. **Unzip :**
    Once the export is done, you'll have a zip file. It may be difficult to unzip it, because of the huge file names. I found that usually `7-zip` is able to unzip it.
