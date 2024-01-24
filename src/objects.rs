@@ -1,9 +1,11 @@
+use indicatif::ProgressIterator;
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     path::PathBuf,
 };
 
-use crate::file_type::FileType;
+use crate::file_type::{FileInfo, FileType};
 
 pub struct NotionObjectInfo {
     /// The path to the file
@@ -25,7 +27,7 @@ pub struct NotionObjectInfo {
 pub enum NotionObject {
     Page(NotionObjectInfo),
     Database {
-        obj: NotionObjectInfo,
+        obj_info: NotionObjectInfo,
         csv_all_path: Option<PathBuf>,
     },
     OtherText {
@@ -106,7 +108,7 @@ impl NotionObject {
                     let name = key[0..last_space_index].to_string();
                     let uuid = key[last_space_index + 1..].to_string();
                     notion_objects.push(NotionObject::Database {
-                        obj: NotionObjectInfo {
+                        obj_info: NotionObjectInfo {
                             path: csv_path,
                             name,
                             uuid,
@@ -131,6 +133,42 @@ impl NotionObject {
 
         notion_objects
     }
+
+    fn get_name_uuid(&self) -> String {
+        match self {
+            NotionObject::Page(obj_info) | NotionObject::Database { obj_info, .. } => {
+                format!("{} {}", obj_info.name, obj_info.uuid)
+            }
+            NotionObject::OtherText { path } | NotionObject::OtherBinary { path } => {
+                path.file_stem().unwrap().to_str().unwrap().to_string()
+            }
+        }
+    }
+
+    fn is_renamable(&self) -> bool {
+        match self {
+            NotionObject::Page(_) | NotionObject::Database { .. } => true,
+            NotionObject::OtherText { .. } | NotionObject::OtherBinary { .. } => false,
+        }
+    }
+
+    fn has_dir(&self) -> bool {
+        match self {
+            NotionObject::Page(info) | NotionObject::Database { obj_info: info, .. } => {
+                info.dir_path.is_some()
+            }
+            NotionObject::OtherText { .. } | NotionObject::OtherBinary { .. } => false,
+        }
+    }
+
+    fn get_dir(&self) -> Option<&PathBuf> {
+        match self {
+            NotionObject::Page(info) | NotionObject::Database { obj_info: info, .. } => {
+                info.dir_path.as_ref()
+            }
+            NotionObject::OtherText { .. } | NotionObject::OtherBinary { .. } => None,
+        }
+    }
 }
 
 type ObjectsMapByName = HashMap<String, Vec<NotionObject>>;
@@ -139,7 +177,7 @@ impl NotionObject {
     fn get_name(&self) -> &str {
         match self {
             NotionObject::Page(info) => &info.name,
-            NotionObject::Database { obj, .. } => &obj.name,
+            NotionObject::Database { obj_info: obj, .. } => &obj.name,
             NotionObject::OtherText { path } => path.file_stem().unwrap().to_str().unwrap(),
             NotionObject::OtherBinary { path } => path.file_stem().unwrap().to_str().unwrap(),
         }
@@ -149,7 +187,7 @@ impl NotionObject {
     fn try_set_new_name(&mut self, new_name: String) {
         match self {
             NotionObject::Page(info) => info.new_name = Some(new_name),
-            NotionObject::Database { obj, .. } => obj.new_name = Some(new_name),
+            NotionObject::Database { obj_info: obj, .. } => obj.new_name = Some(new_name),
             // 'Other' files don't have to be renamed
             NotionObject::OtherText { .. } | NotionObject::OtherBinary { .. } => {}
         }
@@ -158,7 +196,7 @@ impl NotionObject {
     fn get_path(&self) -> &PathBuf {
         match self {
             NotionObject::Page(info) => &info.path,
-            NotionObject::Database { obj, .. } => &obj.path,
+            NotionObject::Database { obj_info: obj, .. } => &obj.path,
             NotionObject::OtherText { path } => path,
             NotionObject::OtherBinary { path } => path,
         }
@@ -240,6 +278,119 @@ impl NotionObject {
                     }
                 }
             }
+        }
+    }
+
+    fn rename_refs_in_file(&self, file_contents: &str) -> String {
+        let mut new_contents: String = file_contents.to_string();
+
+        let old_name = self.get_name_uuid();
+        let new_name = match self {
+            NotionObject::Page(obj_info) | NotionObject::Database { obj_info, .. } => {
+                obj_info.new_name.as_ref().unwrap().as_str()
+            }
+            _ => panic!("non-page, non-database object wont be renamed"),
+        };
+
+        let old_name_encoded = urlencoding::encode(&old_name).into_owned();
+        let new_name_encoded = urlencoding::encode(new_name).into_owned();
+
+        // Renames all references
+        // files, csv_all, directories, etc
+        new_contents = new_contents.replace(&old_name, new_name);
+        new_contents = new_contents.replace(&old_name_encoded, &new_name_encoded);
+
+        new_contents
+    }
+
+    pub fn rename_refs_in_all_files(all_files: Vec<&FileType>, all_objects: Vec<&NotionObject>) {
+        for file in all_files.iter().progress() {
+            let path = match file {
+                FileType::Markdown(FileInfo { path, .. })
+                | FileType::Csv(FileInfo { path, .. })
+                | FileType::CsvAll(FileInfo { path, .. })
+                | FileType::OtherTxt(path) => path,
+                _ => continue,
+            };
+
+            let contents = fs::read_to_string(path).unwrap(); // Should not panic, file should be readable
+            let mut new_contents = contents.clone();
+
+            for object in all_objects.iter().filter(|obj| obj.is_renamable()) {
+                new_contents = object.rename_refs_in_file(&new_contents);
+            }
+
+            if contents != new_contents {
+                fs::write(path, new_contents).unwrap(); // Should not panic, file should be writable
+            }
+        }
+    }
+
+    /// Rename the file and its associated csv_all if any.
+    fn rename_object_files(&self) {
+        let old_path = self.get_path();
+        match self {
+            NotionObject::Page(obj_info) | NotionObject::Database { obj_info, .. } => {
+                let new_path = old_path
+                    .with_file_name(obj_info.new_name.as_ref().unwrap())
+                    .with_extension(old_path.extension().unwrap());
+                fs::rename(old_path, new_path).unwrap(); // Should not panic
+            }
+            _ => panic!("non-page, non-database object wont be renamed"),
+        }
+
+        if let NotionObject::Database {
+            obj_info,
+            csv_all_path: Some(old_csv_all_path),
+        } = self
+        {
+            // Rename also the csv_all
+            let new_csv_all_path = old_csv_all_path
+                .with_file_name(obj_info.new_name.as_ref().unwrap().to_owned() + "_all")
+                .with_extension(old_csv_all_path.extension().unwrap());
+
+            fs::rename(old_csv_all_path, new_csv_all_path).unwrap(); // Should not panic
+        }
+    }
+
+    pub fn rename_objects_files(all_objects: Vec<&NotionObject>) {
+        for object in all_objects
+            .iter()
+            .progress()
+            .filter(|obj| obj.is_renamable())
+        {
+            object.rename_object_files();
+        }
+    }
+
+    fn rename_dir(&self) {
+        let old_dir_path = self.get_dir().unwrap();
+        match self {
+            NotionObject::Page(obj_info) | NotionObject::Database { obj_info, .. } => {
+                let new_dir_path = old_dir_path.with_file_name(obj_info.new_name.as_ref().unwrap());
+                fs::rename(old_dir_path, new_dir_path).unwrap(); // Should not panic
+            }
+            _ => panic!("non-page, non-database object dont have a directory"),
+        }
+    }
+
+    pub fn rename_directories(all_objects: Vec<&NotionObject>) {
+        let mut all_objects_sorted_by_dir_path_len_highest_first = all_objects
+            .iter()
+            .filter(|obj| obj.has_dir())
+            .map(|obj| *obj)
+            .collect::<Vec<&NotionObject>>();
+        all_objects_sorted_by_dir_path_len_highest_first
+            .sort_by_key(|obj| obj.get_dir().unwrap().components().count());
+        all_objects_sorted_by_dir_path_len_highest_first.reverse();
+
+        // Rename dirs by deepest first, to avoid any conflicts
+        // (Renaming a child dir after its parent has been renamed would cause a panic)
+        for object in all_objects_sorted_by_dir_path_len_highest_first
+            .iter()
+            .progress()
+        {
+            object.rename_dir();
         }
     }
 }

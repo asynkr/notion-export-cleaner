@@ -104,4 +104,29 @@ fn main() {
     let objects = NotionObject::objects_from_map(&file_map);
     let mut objects_map = NotionObject::build_map_by_name(objects);
     NotionObject::find_new_names(&mut objects_map);
+
+    println!("Modifying contents of files");
+    NotionObject::rename_refs_in_all_files(
+        file_map.values().flatten().collect::<Vec<&FileType>>(),
+        objects_map
+            .values()
+            .flatten()
+            .collect::<Vec<&NotionObject>>(),
+    );
+
+    println!("Renaming files");
+    NotionObject::rename_objects_files(
+        objects_map
+            .values()
+            .flatten()
+            .collect::<Vec<&NotionObject>>(),
+    );
+
+    println!("Renaming directories");
+    NotionObject::rename_directories(
+        objects_map
+            .values()
+            .flatten()
+            .collect::<Vec<&NotionObject>>(),
+    );
 }
