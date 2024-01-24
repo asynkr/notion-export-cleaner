@@ -13,11 +13,20 @@ It is not trivial, since you also need to edit all links everywhere in the files
 
 ## How to use it ?
 
-![export settings](./doc/export_settings.png)
-
 1. **Export :**
    You'll need to export your Notion workspace as markdown files, with subpages as folders.
-2. **Unzip :**
-   Once the export is done, you'll have a zip file. It may be difficult to unzip it, because of the huge names of the files. I found that `7-zip` is able to unzip it.
-3. **Run the script :**
+![export settings](./doc/export_settings.png)
+> NB: you can also export as markdown _without_ subpages as folders. However, there will be a lot more name conflicts (multiple pages wanting to be called the same), so a lot more `My file`, `My file 1`, `My file 2`, etc.
+
+1. **Unzip :**
+   Once the export is done, you'll have a zip file. It may be difficult to unzip it, because of the huge file names. I found that usually `7-zip` is able to unzip it.
+
+2. **Run the executable :**
+   Inside a terminal, run the executable with the path to the folder containing the exported files as argument.
    `/path/to/notion-export-cleaner.exe /path/to/exported/folder`
+
+## Example of output:
+
+| Before | After  |
+| ------ | ------ |
+| ![before](./doc/file_tree_before.png) | ![after](./doc/file_tree_after.png) |
