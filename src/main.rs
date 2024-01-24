@@ -1,9 +1,17 @@
-use std::{
-    collections::{HashMap, HashSet}, env, fs, path::{Path, PathBuf}, process::exit
-};
+use file_type::FileType;
 use indicatif::ProgressIterator;
+use std::{
+    collections::{HashMap, HashSet},
+    env, fs,
+    path::{Path, PathBuf},
+    process::exit,
+};
+use walkdir::WalkDir;
 
-mod maps;
+use crate::objects::NotionObject;
+
+mod file_type;
+mod objects;
 
 struct EntryRef {
     /// name + space + UUID (for uniqueness)
@@ -57,101 +65,43 @@ fn main() {
     let directory = env::args().nth(1).expect("no directory given");
     let directory_path = PathBuf::from(&directory);
 
-    println!("Indexing files in {}", directory_path.display());
-    let (directories, files, csvs, non_md_files) = maps::build_maps(directory_path);
+    println!("Walking directory tree");
+    let mut file_map: HashMap<String, Vec<FileType>> = HashMap::new();
 
-    println!("Building objects from {} markdown files", files.len());
-    let mut entries = HashMap::new();
-    for file_path in files.values().progress() {
-        let entry = EntryRef::from_file_path(file_path.clone(), &directories, &csvs);
-        entries.insert(entry.name_uuid.clone(), entry);
+    // To skip root
+    for entry in WalkDir::new(&directory_path) {
+        let ft = FileType::from(entry.unwrap().path().to_path_buf());
+        let file_key = ft.get_file_key().to_string();
+        file_map.entry(file_key).or_default().push(ft);
     }
-
-    println!("Managing duplicates");
-    let mut seen: HashSet<String> = HashSet::new();
-    let desired_names_name_uuids = entries.values().map(
-        |entry| (entry.name.clone(), entry.name_uuid.clone())
-    ).collect::<Vec<(String, String)>>();
-    for (desired_name, name_uuid) in desired_names_name_uuids.iter().progress() {
-        let mut name_that_works: String = desired_name.clone();
-
-        let mut i = 1;
-        while seen.contains(&name_that_works) {
-            name_that_works = format!("{} {}", desired_name, i);
-            i += 1;
-        }
-
-        seen.insert(name_that_works.clone());
-        entries.get_mut(name_uuid).unwrap().new_name = Some(name_that_works);
-    }
-
-    println!("Replacing files contents");
-    let all_paths: Vec<&PathBuf> = files.values().chain(csvs.values()).chain(non_md_files.iter()).collect();
-    for path in all_paths.iter().progress() {
-        let contents = match fs::read_to_string(path) {
-            Ok(contents) => contents,
-            _ => { continue; }
-        };
-        let mut new_contents = contents.clone();
-
-        for entry in entries.values() {
-            let old_name = &entry.name_uuid;
-            let old_name_encoded = urlencoding::encode(&entry.name_uuid).into_owned();
-
-            let new_name =  entry.new_name.as_ref().unwrap();
-            let new_name_encoded = urlencoding::encode(&new_name).into_owned();
-
-            new_contents = new_contents.replace(old_name, new_name);
-            new_contents = new_contents.replace(&old_name_encoded, &new_name_encoded);
-        }
-
-        if contents != new_contents {
-            fs::write(path, new_contents).unwrap();
-        }
-    }
-
-    println!("Renaming files");
-    for entry in entries.values().progress() {
-        let old_path = &entry.file_path;
-        let new_path = old_path
-            .with_file_name(&entry.new_name.as_ref().unwrap())
-            .with_extension(old_path.extension().unwrap());
-        let result = fs::rename(old_path, new_path);
-        if let Err(e) = result {
-            println!("Error renaming file: {}", e);
-        }
-    }
-
-    println!("Renaming csvs");
-    for entry in entries.values().progress() {
-        let old_path = &entry.csv_path;
-        let new_path = old_path
-            .as_ref()
-            .map(|path| path.with_file_name(&entry.new_name.as_ref().unwrap()))
-            .map(|path| path.with_extension("csv"));
-        if let Some(new_path) = new_path {
-            let result = fs::rename(old_path.as_ref().unwrap(), new_path);
-            if let Err(e) = result {
-                println!("Error renaming file: {}", e);
+    println!("Found:");
+    {
+        let mut md_files = 0;
+        let mut csv_files = 0;
+        let mut csv_all_files = 0;
+        let mut directories = 0;
+        let mut other_txt_files = 0;
+        let mut other_bin_files = 0;
+        for ft_vec in file_map.values() {
+            for ft in ft_vec.iter() {
+                match ft {
+                    FileType::Markdown(_) => md_files += 1,
+                    FileType::Csv(_) => csv_files += 1,
+                    FileType::CsvAll(_) => csv_all_files += 1,
+                    FileType::Dir(_) => directories += 1,
+                    FileType::OtherTxt(_) => other_txt_files += 1,
+                    FileType::OtherBin(_) => other_bin_files += 1,
+                }
             }
         }
+        println!("\t{} markdown files\n\t{} csv files\n\t{} csv_all files\n\t{} directories\n\t{} other text files\n\t{} other binary files",
+            md_files, csv_files, csv_all_files, directories, other_txt_files, other_bin_files
+        );
+        println!("Total: {}", file_map.values().flatten().count());
     }
 
-    println!("Renaming directories");
-    // Sort entries by dir_path length inverted, so that we rename the subdirectories first
-    let mut entries_sorted_by_dir_path = entries.values().collect::<Vec<&EntryRef>>();
-    entries_sorted_by_dir_path.sort_by_key(|entry| -(entry.dir_path.clone().unwrap_or_default().to_str().unwrap().len() as isize));
-    
-    for entry in entries_sorted_by_dir_path.iter().progress() {
-        let old_path = &entry.dir_path;
-        let new_path = old_path
-            .as_ref()
-            .map(|path| path.with_file_name(&entry.new_name.as_ref().unwrap()));
-        if let Some(new_path) = new_path {
-            let result = fs::rename(old_path.as_ref().unwrap(), new_path);
-            if let Err(e) = result {
-                println!("Error renaming file: {}", e);
-            }
-        }
-    }
+    println!("Building enriched objects from files");
+    let objects = NotionObject::objects_from_map(&file_map);
+    let mut objects_map = NotionObject::build_map_by_name(objects);
+    NotionObject::find_new_names(&mut objects_map);
 }
