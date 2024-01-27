@@ -22,8 +22,14 @@ It is not trivial, since you also need to edit all links everywhere in the files
    Once the export is done, you'll have a zip file. It may be difficult to unzip it, because of the huge file names. I found that usually `7-zip` is able to unzip it.
 
 2. **Run the executable :**
-   Inside a terminal, run the executable with the path to the folder containing the exported files as argument.
+   Inside a terminal, run the executable with the path to the folder containing the exported files as argument:
    `/path/to/notion-export-cleaner.exe /path/to/exported/folder`
+
+## Additional options
+
+- `-h` or `--help` : display the help
+- `-V` or `--version` : display the version
+- `-i` or `--ignore` : list of file or directory names to ignore. For example: `-i .git index.html` will ignore the `.git` folder and the `index.html` file. This means that no renaming and no link editing will be done on these files.
 
 ## Example of output:
 

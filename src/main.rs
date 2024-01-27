@@ -15,21 +15,22 @@ mod objects;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)] // Read from `Cargo.toml`
 #[clap(rename_all = "kebab_case")]
-struct Args {
+struct NECArgs {
     /// The directory to walk
-    #[arg(short, long, required = true)]
-    dir: String,
+    #[arg(required = true)]
+    input_dir: String,
 
     /// List of directory/file names to ignore.
     /// Typically, this can be used to ignore a `.git` directory.
-    #[arg(short, long, num_args(0..))]
+    #[arg(short, long, value_name="FILE_OR_DIR", num_args(0..))]
     ignore: Vec<String>,
 }
 
 fn main() {
-    let args = Args::parse();
+    let args = NECArgs::parse();
 
-    let directory = args.dir;
+
+    let directory = args.input_dir;
     let directory_path = PathBuf::from(&directory);
 
     println!("Walking directory tree");
