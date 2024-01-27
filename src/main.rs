@@ -19,9 +19,9 @@ struct NECArgs {
     #[arg(required = true)]
     input_dir: String,
 
-    /// List of directory/file names to ignore.
+    /// List of directory/file names to ignore, separated by commas.
     /// Typically, this can be used to ignore a `.git` directory.
-    #[arg(short, long, value_name="FILE_OR_DIR", num_args(0..))]
+    #[arg(short, long, value_name="FILE_OR_DIR", num_args(1..), value_delimiter = ',')]
     ignore: Vec<String>,
 }
 

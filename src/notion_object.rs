@@ -336,14 +336,19 @@ impl NotionObject {
             _ => panic!("non-page, non-database object wont be renamed"),
         };
 
-        // Some (most?) of these references are urlencoded (especially in html files)
-        let old_name_encoded = urlencoding::encode(&old_name).into_owned();
-        let new_name_encoded = urlencoding::encode(new_name).into_owned();
+        // Some of these references are url-encoded
+        let old_name_url_encoded = urlencoding::encode(&old_name).into_owned();
+        let new_name_url_encoded = urlencoding::encode(new_name).into_owned();
+
+        // Some of these references are html-encoded
+        let old_name_html_encoded = html_escape::encode_safe(&old_name).into_owned();
+        let new_name_html_encoded = html_escape::encode_safe(new_name).into_owned();
 
         // Renames all references
         // files, csv_all, directories, etc
         new_contents = new_contents.replace(&old_name, new_name);
-        new_contents = new_contents.replace(&old_name_encoded, &new_name_encoded);
+        new_contents = new_contents.replace(&old_name_url_encoded, &new_name_url_encoded);
+        new_contents = new_contents.replace(&old_name_html_encoded, &new_name_html_encoded);
 
         new_contents
     }
