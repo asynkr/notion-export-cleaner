@@ -19,7 +19,13 @@ It is not trivial, since you also need to edit all links everywhere in the files
 > NB: you can also export as markdown or html _without_ subpages as folders. However, there will be a lot more name conflicts (multiple pages wanting to be called the same), so a lot more `My file`, `My file 1`, `My file 2`, etc.
 
 1. **Unzip :**
-   Once the export is done, you'll have a zip file. It may be difficult to unzip it, because of the huge file names. I found that usually `7-zip` is able to unzip it.
+   Once the export is done, you'll have a zip file. This zip file will be difficult to unpack. In a lot of cases, Windows will refuse to unzip it, due to the long file names. My personal recommandation for unziping is to do the following:
+
+   1. Use `7-zip` to "extract here" the zip file. This will create a folder with the same name as the zip file, but wont extract it recursively.
+   
+   2. Rename the zip to something shorter, like `export.zip`
+   
+   3. Use `7-zip` to "extract files". Choose a destination with a short path. I personnaly use `D:\`, the root of a secondary drive.
 
 2. **Run the executable :**
    Inside a terminal, run the executable with the path to the folder containing the exported files as argument:
@@ -30,6 +36,8 @@ It is not trivial, since you also need to edit all links everywhere in the files
 - `-h` or `--help` : display the help
 - `-V` or `--version` : display the version
 - `-i` or `--ignore` : list of file or directory names to ignore, separated by commas. For example: `-i .git,index.html` will ignore the `.git` folder and the `index.html` file. This means that no renaming and no link editing will be done on these files.
+
+Example: `/path/to/notion-export-cleaner.exe /path/to/exported/folder -i .git`
 
 ## Example of output:
 
