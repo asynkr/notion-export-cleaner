@@ -159,17 +159,26 @@ impl NotionObject {
                         }
                     ));
                 }
+                // A special case of a database with a csv_all file but no csv file and no html or markdown page
+                (None, None, None, Some(csv_all_path), Some(dir_path)) => panic!(
+                    "--------------------\nDatabase with csv_all file and a directory, but no csv file and no html or markdown page: KEY: {}\n\tCSV_ALL: {:?}\n\tDIR: {:?}\n-> My advice is to simply remove the '_all' at the end of {:?}. I may add proper support for this format later.\n--------------------\n",
+                    key,
+                    csv_all_path,
+                    dir_path,
+                    csv_all_path
+                ),
                 // Directory alone. we dont rename it, so skip it.
                 // (All renamable directories are associated with a page or a database)
                 (None, None, None, None, Some(_)) => {}
                 // Invalid !
-                (md_path, html_path, csv_path, csv_all_path, _) => panic!(
-                    "Invalid paths (database files and page files have same key {}):\n{}\n{}\n{}\n{}",
+                (md_path, html_path, csv_path, csv_all_path, dir_path) => panic!(
+                    "Invalid path combination with key [{}]):\n\tMarkdown: {:?}\n\tHTML: {:?}\n\tCSV: {:?}\n\tCSV_ALL: {:?}\n\tDIR: {:?}",
                     key,
-                    md_path.unwrap_or_default().display(),
-                    html_path.unwrap_or_default().display(),
-                    csv_path.unwrap_or_default().display(),
-                    csv_all_path.unwrap_or_default().display()
+                    md_path,
+                    html_path,
+                    csv_path,
+                    csv_all_path,
+                    dir_path
                 ),
             }
         }
