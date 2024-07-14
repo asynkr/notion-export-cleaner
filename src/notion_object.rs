@@ -1,11 +1,9 @@
 use indicatif::ProgressIterator;
 use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    path::PathBuf,
+    cmp::max, collections::{HashMap, HashSet}, fs, path::PathBuf
 };
 
-use crate::file_type::FileType;
+use crate::{file_type::FileType, utils::encode_uri};
 
 /// The `index.html` file has a `index` key.
 /// It shouldn't be totally ignored because it has content to be modified,
@@ -260,6 +258,18 @@ impl NotionObject {
     }
 }
 
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum RenameRefsInFileError {
+    #[error("The uuid {uuid} ({new_name}) remains in renamed content:\n\tFound in: '...{window_where_uuid_appears}...'\n\tStrings replaced: {looked_for:?}")]
+    RefRemainingInFile{
+        uuid: String,
+        new_name: String,
+        window_where_uuid_appears: String,
+        new_contents: String,
+        looked_for: Vec<String>,
+    },
+}
+
 // BUSINESS LOGIC
 impl NotionObject {
     /// Find a new name for this object.
@@ -334,7 +344,7 @@ impl NotionObject {
     }
 
     /// Renames all references to this object in a given file.
-    fn rename_refs_in_file(&self, file_contents: &str) -> String {
+    fn rename_refs_in_file(&self, file_contents: &str) -> Result<String, RenameRefsInFileError> {
         let mut new_contents: String = file_contents.to_string();
 
         let old_name = self.get_name_uuid();
@@ -345,21 +355,45 @@ impl NotionObject {
             _ => panic!("non-page, non-database object wont be renamed"),
         };
 
-        // Some of these references are url-encoded
-        let old_name_url_encoded = urlencoding::encode(&old_name).into_owned();
-        let new_name_url_encoded = urlencoding::encode(new_name).into_owned();
+        // Some of these references are uri-encoded
+        let old_name_uri_encoded = encode_uri(&old_name);
+        let new_name_uri_encoded = encode_uri(new_name);
 
         // Some of these references are html-encoded
         let old_name_html_encoded = html_escape::encode_safe(&old_name).into_owned();
         let new_name_html_encoded = html_escape::encode_safe(new_name).into_owned();
 
+        // Others, a mix of both
+        let old_name_html_uri_encoded = encode_uri(&old_name_html_encoded);
+        let new_name_html_uri_encoded = encode_uri(&new_name_html_encoded);
+
         // Renames all references
         // files, csv_all, directories, etc
-        new_contents = new_contents.replace(&old_name, new_name);
-        new_contents = new_contents.replace(&old_name_url_encoded, &new_name_url_encoded);
-        new_contents = new_contents.replace(&old_name_html_encoded, &new_name_html_encoded);
+        new_contents = new_contents
+            .replace(&old_name, new_name)
+            .replace(&old_name_uri_encoded, &new_name_uri_encoded)
+            .replace(&old_name_html_encoded, &new_name_html_encoded)
+            .replace(&old_name_html_uri_encoded, &new_name_html_uri_encoded);
 
-        new_contents
+        // Error checking: see if uuid is in new_contents
+        match self {
+            NotionObject::Page(obj_info) | NotionObject::Database(obj_info, _) => {
+                if let Some(index) = new_contents.find(obj_info.uuid.as_str()) {
+                    // UUID found! raise error, but give new_contents anyway
+                    return Err(RenameRefsInFileError::RefRemainingInFile {
+                        uuid: obj_info.uuid.clone(),
+                        new_name: new_name.to_string(),
+                        // window does not need to be precise
+                        window_where_uuid_appears: new_contents[max(0, index - obj_info.name.len() * 2)..index + obj_info.uuid.len()].to_string(),
+                        new_contents,
+                        looked_for: vec![old_name, old_name_uri_encoded, old_name_html_encoded, old_name_html_uri_encoded],
+                    });
+                }
+            },
+            _ => {},
+        };
+
+        Ok(new_contents)
     }
 
     /// Renames all references to all objects in all given files.
@@ -374,13 +408,31 @@ impl NotionObject {
             let old_contents = fs::read_to_string(path).unwrap(); // Should not panic, file should be readable
             let mut new_contents = old_contents.clone();
 
+            let mut errors_encountered: Vec<RenameRefsInFileError> = vec![];
+
             for object in all_objects.iter().filter(|obj| obj.is_page_or_dataset()) {
-                new_contents = object.rename_refs_in_file(&new_contents);
+
+                new_contents = match object.rename_refs_in_file(&new_contents) {
+                    Ok(new_contents_updated) => new_contents_updated,
+                    Err(err) => {
+                        errors_encountered.push(err.clone());
+                        match err.clone() {
+                            RenameRefsInFileError::RefRemainingInFile { new_contents , .. } => {
+                                if !path.ends_with("index.html") {
+                                    // uuid is expected to appear in index.html. It's not a failing renaming.
+                                    println!("Warning: non-fatal problem found while renaming references {:?}:\n\t{}", path, err);
+                                }
+                                new_contents
+                            }
+                        }
+                    },
+                };
             }
 
             if old_contents != new_contents {
                 fs::write(path, new_contents).unwrap(); // Should not panic, file should be writable
             }
+
         }
     }
 
