@@ -380,11 +380,19 @@ impl NotionObject {
             NotionObject::Page(obj_info) | NotionObject::Database(obj_info, _) => {
                 if let Some(index) = new_contents.find(obj_info.uuid.as_str()) {
                     // UUID found! raise error, but give new_contents anyway
+
+                    let window_where_uuid_appears_begin = new_contents.char_indices().nth(
+                        max(0, index - obj_info.name.len() * 2)
+                    ).unwrap_or_default().0;
+                    let window_where_uuid_appears_end = new_contents.char_indices().nth(
+                        index + obj_info.uuid.len()
+                    ).unwrap_or_default().0;
+
                     return Err(RenameRefsInFileError::RefRemainingInFile {
                         uuid: obj_info.uuid.clone(),
                         new_name: new_name.to_string(),
                         // window does not need to be precise
-                        window_where_uuid_appears: new_contents[max(0, index - obj_info.name.len() * 2)..index + obj_info.uuid.len()].to_string(),
+                        window_where_uuid_appears: new_contents[window_where_uuid_appears_begin..window_where_uuid_appears_end].to_string(),
                         new_contents,
                         looked_for: vec![old_name, old_name_uri_encoded, old_name_html_encoded, old_name_html_uri_encoded],
                     });
