@@ -202,6 +202,13 @@ impl NotionObject {
 
 // GETTERS-SETTERS
 impl NotionObject {
+    fn get_uuid_or_invalid(&self) -> &str {
+        match self {
+            NotionObject::Page(info) | NotionObject::Database(info, _) => &info.uuid,
+           _ => "00000000000000000000000000000000"
+        }
+    }
+
     fn get_name_uuid(&self) -> String {
         match self {
             NotionObject::Page(info) | NotionObject::Database(info, _) => {
@@ -310,6 +317,9 @@ impl NotionObject {
                 })
                 .collect::<Vec<_>>();
 
+            // Sort by uuid to ensure determinism
+            objects.sort_by(|left_obj, right_obj| left_obj.get_uuid_or_invalid().cmp(&right_obj.get_name_uuid()));
+            
             let mut new_paths_seen = HashSet::new();
             for i in 0..objects.len() {
                 let obj = &mut objects[i];
