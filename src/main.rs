@@ -24,11 +24,16 @@ struct NECArgs {
     /// Typically, this can be used to ignore a `.git` directory.
     #[arg(short, long, value_name="FILE_OR_DIR", num_args(1..), value_delimiter = ',')]
     ignore: Vec<String>,
+
+    /// Prevent contents or file name modification. The program will execute everything except the actual writing to file. Use this to test for errors.
+    #[arg(short, long)]
+    test: bool,
 }
 
 fn main() {
     let args = NECArgs::parse();
 
+    let is_testing = args.test;
     let directory = args.input_dir;
     let directory_path = PathBuf::from(&directory);
 
@@ -50,6 +55,7 @@ fn main() {
             .values()
             .flatten()
             .collect::<Vec<&NotionObject>>(),
+        is_testing
     );
 
     println!("Renaming files");
@@ -58,6 +64,7 @@ fn main() {
             .values()
             .flatten()
             .collect::<Vec<&NotionObject>>(),
+        is_testing
     );
 
     println!("Renaming directories");
@@ -66,6 +73,7 @@ fn main() {
             .values()
             .flatten()
             .collect::<Vec<&NotionObject>>(),
+        is_testing
     );
 }
 

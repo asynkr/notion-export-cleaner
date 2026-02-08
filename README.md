@@ -36,6 +36,7 @@ It is not trivial, since you also need to edit all links everywhere in the files
 - `-h` or `--help` : display the help
 - `-V` or `--version` : display the version
 - `-i` or `--ignore` : list of file or directory names to ignore, separated by commas. For example: `-i .git,index.html` will ignore the `.git` folder and the `index.html` file. This means that no renaming and no link editing will be done on these files.
+- `-t` or `--test` : Prevent contents or file name modification. The program will execute everything except the actual writing to file. Use this to test for errors.
 
 Example: `/path/to/notion-export-cleaner.exe /path/to/exported/folder -i .git`
 

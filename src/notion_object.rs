@@ -1,7 +1,9 @@
-use indicatif::ProgressIterator;
+use indicatif::{ProgressIterator, ProgressStyle};
+use pathdiff::diff_paths;
 use std::{
-    cmp::max, collections::{HashMap, HashSet}, fs, path::PathBuf
+    cmp::max, collections::{HashMap, HashSet}, fs, path::PathBuf, sync::LazyLock
 };
+use regex::Regex;
 
 use crate::{file_type::FileType, utils::encode_uri};
 
@@ -9,6 +11,9 @@ use crate::{file_type::FileType, utils::encode_uri};
 /// It shouldn't be totally ignored because it has content to be modified,
 /// but it shouldn't be renamed. So it shouldn't be a Page object.
 const INDEX_KEY: &str = "index";
+
+static PROGRESS_BAR_STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| ProgressStyle::default_bar().progress_chars("═█▓▒·"));
+static NOTION_LINK_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(.*notion\.so.*\)").unwrap());
 
 type ObjectsMapByName = HashMap<String, Vec<NotionObject>>;
 
@@ -344,7 +349,8 @@ impl NotionObject {
     }
 
     /// Renames all references to this object in a given file.
-    fn rename_refs_in_file(&self, file_contents: &str) -> Result<String, RenameRefsInFileError> {
+    /// relative_path is the path from this file to the referenced notion object.
+    fn rename_refs_in_file(&self, file_contents: &str, relative_path: Option<PathBuf>) -> Result<String, RenameRefsInFileError> {
         let mut new_contents: String = file_contents.to_string();
 
         let old_name = self.get_name_uuid();
@@ -375,24 +381,47 @@ impl NotionObject {
             .replace(&old_name_html_encoded, &new_name_html_encoded)
             .replace(&old_name_html_uri_encoded, &new_name_html_uri_encoded);
 
+        // Some are Notion paths
+        // https://www.notion.so/uuid?arg=smthg
+        // We will replace them with relative disk paths
+        if let Some(relative_path_with_new_name) = || -> Option<String> { Some(relative_path.as_ref()?.to_str()?.replace(&old_name, new_name)) } () {
+            match self {
+                NotionObject::Page(obj_info) | NotionObject::Database(obj_info, _) => {
+                
+                    let mut link_matches_with_uuid_ranges: Vec<_> = NOTION_LINK_RE.find_iter(&new_contents)
+                        .filter(|m| m.as_str().contains(&obj_info.uuid))
+                        .map(|m| m.start()..m.end())
+                        .collect();
+                    link_matches_with_uuid_ranges.reverse();
+                    for re_match_range in link_matches_with_uuid_ranges {
+                        new_contents.replace_range(re_match_range, &relative_path_with_new_name);
+                    }
+                },
+                _ => {},
+            };
+        }
+
         // Error checking: see if uuid is in new_contents
         match self {
             NotionObject::Page(obj_info) | NotionObject::Database(obj_info, _) => {
-                if let Some(index) = new_contents.find(obj_info.uuid.as_str()) {
+                if let Some(uuid_byte_index) = new_contents.find(obj_info.uuid.as_str()) {
                     // UUID found! raise error, but give new_contents anyway
 
-                    let window_where_uuid_appears_begin = new_contents.char_indices().nth(
-                        max(0, index - obj_info.name.len() * 2)
-                    ).unwrap_or_default().0;
-                    let window_where_uuid_appears_end = new_contents.char_indices().nth(
-                        index + obj_info.uuid.len()
-                    ).unwrap_or_default().0;
+                    let window_byte_offset = max(30, obj_info.name.len() * 2); // Arbitrary offset, to accomodate at least more than 1 instance of the name.
+                    let uuid_size = obj_info.uuid.len();
+                    let window_where_uuid_appears_begin = if uuid_byte_index > window_byte_offset {
+                        new_contents.floor_char_boundary(uuid_byte_index - window_byte_offset)
+                    } else {
+                        0
+                    };
+                    let window_where_uuid_appears_end = new_contents.ceil_char_boundary(uuid_byte_index + uuid_size + window_byte_offset);
+                    let window_where_uuid_appears = &new_contents[window_where_uuid_appears_begin..window_where_uuid_appears_end];
 
                     return Err(RenameRefsInFileError::RefRemainingInFile {
                         uuid: obj_info.uuid.clone(),
                         new_name: new_name.to_string(),
                         // window does not need to be precise
-                        window_where_uuid_appears: new_contents[window_where_uuid_appears_begin..window_where_uuid_appears_end].to_string(),
+                        window_where_uuid_appears: window_where_uuid_appears.to_string(),
                         new_contents,
                         looked_for: vec![old_name, old_name_uri_encoded, old_name_html_encoded, old_name_html_uri_encoded],
                     });
@@ -405,10 +434,10 @@ impl NotionObject {
     }
 
     /// Renames all references to all objects in all given files.
-    pub fn rename_refs_in_all_files(all_files: Vec<&FileType>, all_objects: Vec<&NotionObject>) {
+    pub fn rename_refs_in_all_files(all_files: Vec<&FileType>, all_objects: Vec<&NotionObject>, is_test: bool) {
         for file in all_files
             .iter()
-            .progress()
+            .progress_with_style(PROGRESS_BAR_STYLE.clone())
             .filter(|ft| ft.is_readable_type())
         {
             let path = file.get_path();
@@ -420,7 +449,9 @@ impl NotionObject {
 
             for object in all_objects.iter().filter(|obj| obj.is_page_or_dataset()) {
 
-                new_contents = match object.rename_refs_in_file(&new_contents) {
+                let notion_object_relative_path = diff_paths(object.get_path(), path);
+
+                new_contents = match object.rename_refs_in_file(&new_contents, notion_object_relative_path) {
                     Ok(new_contents_updated) => new_contents_updated,
                     Err(err) => {
                         errors_encountered.push(err.clone());
@@ -428,7 +459,7 @@ impl NotionObject {
                             RenameRefsInFileError::RefRemainingInFile { new_contents , .. } => {
                                 if !path.ends_with("index.html") {
                                     // uuid is expected to appear in index.html. It's not a failing renaming.
-                                    println!("Warning: non-fatal problem found while renaming references {:?}:\n\t{}", path, err);
+                                    println!("Warning: non-fatal problem found while renaming references in {:?}:\n\t{}", path, err);
                                 }
                                 new_contents
                             }
@@ -437,7 +468,7 @@ impl NotionObject {
                 };
             }
 
-            if old_contents != new_contents {
+            if old_contents != new_contents && !is_test {
                 fs::write(path, new_contents).unwrap(); // Should not panic, file should be writable
             }
 
@@ -446,14 +477,16 @@ impl NotionObject {
 
     /// Rename the file and its associated files if any.
     /// Associated files are the csv_all and the html file for databases. NOT the directory.
-    fn rename_object_files(&self) {
+    fn rename_object_files(&self, is_test: bool) {
         let old_path = self.get_path();
         match self {
             NotionObject::Page(obj_info) | NotionObject::Database(obj_info, _) => {
                 let new_path = old_path
                     .with_file_name(obj_info.new_name.as_ref().unwrap())
                     .with_extension(old_path.extension().unwrap());
-                fs::rename(old_path, new_path).unwrap(); // Should not panic
+                if !is_test  {
+                    fs::rename(old_path, new_path).unwrap(); // Should not panic
+                }
             }
             _ => panic!("non-page, non-database object wont be renamed"),
         }
@@ -471,7 +504,9 @@ impl NotionObject {
                 .with_file_name(obj_info.new_name.as_ref().unwrap().to_owned() + "_all")
                 .with_extension(old_csv_all_path.extension().unwrap());
 
-            fs::rename(old_csv_all_path, new_csv_all_path).unwrap(); // Should not panic
+            if !is_test{
+                fs::rename(old_csv_all_path, new_csv_all_path).unwrap(); // Should not panic
+            }
         }
 
         if let NotionObject::Database(
@@ -487,29 +522,33 @@ impl NotionObject {
                 .with_file_name(obj_info.new_name.as_ref().unwrap())
                 .with_extension(old_html_path.extension().unwrap());
 
-            fs::rename(old_html_path, new_html_path).unwrap(); // Should not panic
+            if !is_test{
+                fs::rename(old_html_path, new_html_path).unwrap(); // Should not panic
+            }
         }
     }
 
     /// Renames all files associated with all given objects.
     /// Associated files are the csv_all and the html files for databases. NOT the directories.
-    pub fn rename_objects_files(all_objects: Vec<&NotionObject>) {
+    pub fn rename_objects_files(all_objects: Vec<&NotionObject>, is_test: bool) {
         for object in all_objects
             .iter()
-            .progress()
+            .progress_with_style(PROGRESS_BAR_STYLE.clone())
             .filter(|obj| obj.is_page_or_dataset())
         {
-            object.rename_object_files();
+            object.rename_object_files(is_test);
         }
     }
 
     /// Renames the directory associated with this object.
-    fn rename_dir(&self) {
+    fn rename_dir(&self, is_test: bool) {
         let old_dir_path = self.get_dir().unwrap();
         match self {
             NotionObject::Page(obj_info) | NotionObject::Database(obj_info, _) => {
                 let new_dir_path = old_dir_path.with_file_name(obj_info.new_name.as_ref().unwrap());
-                fs::rename(old_dir_path, new_dir_path).unwrap(); // Should not panic
+                if !is_test {
+                    fs::rename(old_dir_path, new_dir_path).unwrap(); // Should not panic
+                }
             }
             _ => panic!("non-page, non-database object dont have a directory"),
         }
@@ -518,7 +557,7 @@ impl NotionObject {
     /// Renames all directories associated with all given objects.
     /// Sorts the directories by their depth (deepest first) to avoid conflicts.
     /// Indeed, renaming a parent directory first would invalidate the child path.
-    pub fn rename_directories(all_objects: Vec<&NotionObject>) {
+    pub fn rename_directories(all_objects: Vec<&NotionObject>, is_test: bool) {
         let mut all_objects_sorted_by_dir_path_len_highest_first = all_objects
             .iter()
             .filter(|obj| obj.has_dir())
@@ -530,9 +569,9 @@ impl NotionObject {
 
         for object in all_objects_sorted_by_dir_path_len_highest_first
             .iter()
-            .progress()
+            .progress_with_style(PROGRESS_BAR_STYLE.clone())
         {
-            object.rename_dir();
+            object.rename_dir(is_test);
         }
     }
 }
