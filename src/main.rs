@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 
 mod file_type;
 mod notion_object;
-mod utils;
+mod uriencoding;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)] // Read from `Cargo.toml`

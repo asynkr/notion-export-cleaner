@@ -5,7 +5,7 @@ use std::{
 };
 use regex::Regex;
 
-use crate::{file_type::FileType, utils::encode_uri};
+use crate::{file_type::FileType, uriencoding};
 
 /// The `index.html` file has a `index` key.
 /// It shouldn't be totally ignored because it has content to be modified,
@@ -372,24 +372,24 @@ impl NotionObject {
         };
 
         // Some of these references are uri-encoded
-        let old_name_uri_encoded = encode_uri(&old_name);
-        let new_name_uri_encoded = encode_uri(new_name);
+        let old_name_uri_encoded = uriencoding::encode(&old_name);
+        let new_name_uri_encoded = uriencoding::encode(new_name);
 
         // Some of these references are html-encoded
         let old_name_html_encoded = html_escape::encode_safe(&old_name).into_owned();
         let new_name_html_encoded = html_escape::encode_safe(new_name).into_owned();
 
         // Others, a mix of both
-        let old_name_html_uri_encoded = encode_uri(&old_name_html_encoded);
-        let new_name_html_uri_encoded = encode_uri(&new_name_html_encoded);
+        let old_name_html_uri_encoded = uriencoding::encode(&old_name_html_encoded);
+        let new_name_html_uri_encoded = uriencoding::encode(&new_name_html_encoded);
 
         // Renames all references
         // files, csv_all, directories, etc
         new_contents = new_contents
             .replace(&old_name, new_name)
-            .replace(&old_name_uri_encoded, &new_name_uri_encoded)
+            .replace(&*old_name_uri_encoded, &new_name_uri_encoded)
             .replace(&old_name_html_encoded, &new_name_html_encoded)
-            .replace(&old_name_html_uri_encoded, &new_name_html_uri_encoded);
+            .replace(&*old_name_html_uri_encoded, &new_name_html_uri_encoded);
 
         // Some are Notion paths
         // https://www.notion.so/uuid?arg=smthg
@@ -402,6 +402,7 @@ impl NotionObject {
                         .filter(|m| m.as_str().contains(&obj_info.uuid))
                         .map(|m| m.start()..m.end())
                         .collect();
+                    
                     link_matches_with_uuid_ranges.reverse();
                     for re_match_range in link_matches_with_uuid_ranges {
                         new_contents.replace_range(re_match_range, &relative_path_with_new_name);
@@ -433,7 +434,7 @@ impl NotionObject {
                         // window does not need to be precise
                         window_where_uuid_appears: window_where_uuid_appears.to_string(),
                         new_contents,
-                        looked_for: vec![old_name, old_name_uri_encoded, old_name_html_encoded, old_name_html_uri_encoded],
+                        looked_for: vec![old_name.clone(), old_name_uri_encoded.into_owned(), old_name_html_encoded.clone(), old_name_html_uri_encoded.into_owned()],
                     });
                 }
             },
