@@ -26,6 +26,8 @@ pub struct NotionObjectInfo {
     name: String,
     /// The UUID of the file
     uuid: String,
+    /// Name + space + UUID
+    old_name: String,
 
     /// The path to the directory with the same name as the file, if it exists
     dir_path: Option<PathBuf>,
@@ -141,6 +143,7 @@ impl NotionObject {
                     let uuid = key[last_space_index + 1..].to_string();
                     notion_objects.push(NotionObject::Page(NotionObjectInfo {
                         path: page_path,
+                        old_name: format!("{} {}", &name, &uuid),
                         name,
                         uuid,
                         dir_path,
@@ -158,6 +161,7 @@ impl NotionObject {
                     notion_objects.push(NotionObject::Database(
                         NotionObjectInfo {
                             path: csv_path,
+                            old_name: format!("{} {}", &name, &uuid),
                             name,
                             uuid,
                             dir_path,
@@ -214,17 +218,6 @@ impl NotionObject {
         match self {
             NotionObject::Page(info, ..) | NotionObject::Database(info, ..) => &info.uuid,
            _ => "00000000000000000000000000000000"
-        }
-    }
-
-    fn get_name_uuid(&self) -> String {
-        match self {
-            NotionObject::Page(info, ..) | NotionObject::Database(info, ..) => {
-                format!("{} {}", info.name, info.uuid)
-            }
-            NotionObject::OtherText { path, .. } | NotionObject::OtherBinary { path, .. } => {
-                path.file_stem().unwrap().to_str().unwrap().to_string()
-            }
         }
     }
 
@@ -355,7 +348,7 @@ impl NotionObject {
                 .collect::<Vec<_>>();
 
             // Sort by uuid to ensure determinism
-            objects.sort_by(|left_obj, right_obj| left_obj.get_uuid_or_invalid().cmp(&right_obj.get_name_uuid()));
+            objects.sort_by(|left_obj, right_obj| left_obj.get_uuid_or_invalid().cmp(&right_obj.get_uuid_or_invalid()));
             
             let mut new_paths_seen = HashSet::new();
             for i in 0..objects.len() {
@@ -400,10 +393,9 @@ impl NotionObject {
     fn rename_refs_in_file(&self, file_contents: &str, relative_path: Option<PathBuf>) -> Result<String, RenameRefsInFileError> {
         let mut new_contents: String = file_contents.to_string();
 
-        let old_name = self.get_name_uuid();
-        let new_name = match self {
+        let (old_name, new_name) = match self {
             NotionObject::Page(obj_info, ..) | NotionObject::Database(obj_info, ..) => {
-                obj_info.new_name.as_ref().unwrap().as_str()
+                (obj_info.new_name.as_ref().unwrap().as_str(), obj_info.old_name.as_str())
             }
             _ => panic!("non-page, non-database object wont be renamed"),
         };
@@ -415,7 +407,7 @@ impl NotionObject {
         // Some are Notion paths
         // https://www.notion.so/uuid?arg=smthg
         // We will replace them with relative disk paths
-        if let Some(relative_path_with_new_name) = || -> Option<String> { Some(relative_path.as_ref()?.to_str()?.replace(&old_name, new_name)) } () {
+        if let Some(relative_path_with_new_name) = || -> Option<String> { Some(relative_path.as_ref()?.to_str()?.replace(old_name, new_name)) } () {
             match self {
                 NotionObject::Page(obj_info, ..) | NotionObject::Database(obj_info, ..) => {
                 
