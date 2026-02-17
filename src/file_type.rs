@@ -1,4 +1,6 @@
-use std::{fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
+
+pub type FileMapByName = HashMap<String, Vec<FileType>>;
 
 /// Stores the path and name + UUID of a file or directory.
 #[derive(Debug)]

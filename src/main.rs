@@ -8,8 +8,14 @@ use std::{
 };
 use walkdir::WalkDir;
 
+use crate::file_type::FileMapByName;
+use crate::notion_object::ObjectsMapByName;
+
+mod content_replacing;
+mod constants;
 mod file_type;
 mod notion_object;
+mod path_replacing;
 mod uriencoding;
 
 #[derive(Parser, Debug)]
@@ -37,44 +43,36 @@ fn main() {
     let directory = args.input_dir;
     let directory_path = PathBuf::from(&directory);
 
+    if is_testing {
+        println!("RUNNING IN TEST MODE");
+    }
+
     println!("Walking directory tree");
     let ignore: HashSet<&str> = HashSet::from_iter(args.ignore.iter().map(|s| s.as_str()));
-    let file_map = build_file_map(directory_path, ignore);
+    let file_map: FileMapByName = build_file_map(directory_path, ignore);
+    let files_vec = file_map.values().flatten().collect::<Vec<&FileType>>();
 
     print_file_map_info(&file_map);
 
     println!("Building enriched objects from files");
-    let objects = NotionObject::objects_from_map(&file_map);
-    let mut objects_map = NotionObject::build_map_by_name(objects);
-    NotionObject::find_new_names(&mut objects_map);
+    let objects = NotionObject::create_objects_from_file_map(&file_map);
+    let mut objects_map: ObjectsMapByName = NotionObject::build_map_by_name(objects);
+    
+    path_replacing::resolve_new_names(&mut objects_map);
+
+    let objects_vec = objects_map
+        .values()
+        .flatten()
+        .collect::<Vec<&NotionObject>>();
 
     println!("Modifying contents of files");
-    NotionObject::rename_refs_in_all_files(
-        file_map.values().flatten().collect::<Vec<&FileType>>(),
-        objects_map
-            .values()
-            .flatten()
-            .collect::<Vec<&NotionObject>>(),
-        is_testing
-    );
+    content_replacing::rename_refs_in_all_files(&files_vec, &objects_vec, is_testing);
 
     println!("Renaming files");
-    NotionObject::rename_objects_files(
-        objects_map
-            .values()
-            .flatten()
-            .collect::<Vec<&NotionObject>>(),
-        is_testing
-    );
+    path_replacing::rename_objects_files(&objects_vec, is_testing);
 
     println!("Renaming directories");
-    NotionObject::rename_directories(
-        objects_map
-            .values()
-            .flatten()
-            .collect::<Vec<&NotionObject>>(),
-        is_testing
-    );
+    path_replacing::rename_directories(&objects_vec, is_testing);
 }
 
 /// The file map is a map of file keys to a list of the entries matching this key.
@@ -82,8 +80,8 @@ fn main() {
 fn build_file_map(
     directory_path: PathBuf,
     ignore: HashSet<&str>,
-) -> HashMap<String, Vec<FileType>> {
-    let mut file_map: HashMap<String, Vec<FileType>> = HashMap::new();
+) -> FileMapByName {
+    let mut file_map: FileMapByName = HashMap::new();
 
     for entry in WalkDir::new(directory_path) {
         let entry = entry.unwrap(); // panic if error
@@ -109,7 +107,7 @@ fn build_file_map(
     file_map
 }
 
-fn print_file_map_info(file_map: &HashMap<String, Vec<FileType>>) {
+fn print_file_map_info(file_map: &FileMapByName) {
     println!("Found:");
 
     let mut md_files = 0;
